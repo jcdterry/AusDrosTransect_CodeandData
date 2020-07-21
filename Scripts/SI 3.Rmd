@@ -1,0 +1,885 @@
+---
+title: "Supplementary Information 3 - Statistical Analyses"
+output:
+  word_document:
+    toc: yes
+    toc_depth: '1'
+    reference_docx: WordMarkdownStyleSheet.docx
+  html_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 1
+---
+
+```{r eval=FALSE, include=FALSE}
+#######################################################################################
+### This script will replicate all statistical analyses conducted in the paper. ######
+#######################################################################################
+```
+
+# Introduction
+
+This appendix contains additional data tables and the details of statistical analyses presented in the main text. Results are presented here as raw statistical outputs from `R` for maximum clarity. This is a dynamic document, generated using R Markdown. The source script for this file, as well as all material necessary to replicate the analysis are available at [Redacted]. 
+
+
+Raw identification data is available as `SimplifiedFullData.csv`, however note that due to our hierarchical sampling approach this should not be treated as a simple list of observed interactions. For long term archive and data-reuse purposes, tidied data and full explanatory metadata will also be made available in a standardised format through the Environmental Information Data Centre https://eidc.ac.uk/. 
+
+
+```{r message=FALSE, warning=FALSE, echo = FALSE}
+
+## Packages used and reading in data. 
+
+library(tidyverse)
+library(bipartite)
+library(readxl)
+library(knitr)
+library(magrittr)
+library(bipartite)
+library(bipartiteD3)
+library(ggpubr)
+library(cowplot)
+library(ecodist)
+library(cassandRa)
+library(broom)
+library(lme4)
+
+COLOURS <- c('bipectinata'='#A6CEE3',
+             'birchii'='#1F78B4',
+             'bunnanda'='#B2DF8A',
+             'immigrans'='#33A02C',
+             'pallidifrons'='#FB9A99',
+             'pandora'='#E31A1C',
+             'pseudoananassae'='#FDBF6F',
+             'pseudotakahashii'='#FF7F00',
+             'rubida'='#CAB2D6',
+             'serrata' = 'black',
+             'sulfurigaster'='#6A3D9A',
+             'unknown'='#FFFF99')
+
+Iffy <- c('Unparasitised','Unidentified',
+          'not blasted', 'not blasted (beetle)',
+          'tissue contamination',
+          'tissue contamination (beetle)',
+          'unidentified' )
+
+SitesOrder<- c('K070', 'K390', 'K730','P070', 'P350', 'P880')
+
+load('../GeneratedData/RelHostData')
+load('../GeneratedData/EnrichedInteractionList1000')
+load('../GeneratedData/FullData')
+
+
+EnrichedNetworks<- EnrichedInteractionList1000%>%
+  frame2webs( c('Host', 'ShortParaName', 'Site', 'est_N_ints_per1000'),
+              emptylist = FALSE)
+
+CoreNetworks <- RelHostData %>%
+  mutate(Unusable = Parasitoid %in% Iffy|Host =='sulfurigaster complex')%>%
+  filter(!Unusable,
+         !is.na(Parasitoid   ))%>%
+  frame2webs( c('Host', 'ShortParaName', 'Site'),
+              emptylist = FALSE)
+
+QualWebs<-FullData %>%
+  mutate(Unusable = Parasitoid %in% Iffy |Host =='sulfurigaster complex')%>%
+  filter(!Unusable,
+         !is.na(extracted), 
+         !is.na( Parasitoid)) %>%
+  frame2webs( c('Host', 'ShortParaName', 'Site'),
+              emptylist = FALSE)
+
+## Create qualitative binary networks
+for(ll in 1:6){ QualWebs[[ll]][QualWebs[[ll]]>0] <- 1}
+
+```
+
+# Impact of elevation on parasitism rates
+
+## Raw Data
+
+```{r message=FALSE, warning=FALSE, echo =FALSE}
+
+FullData%>%
+  filter(!is.na(extracted))%>%
+  mutate(P_summary = ifelse(is.na(P_summary),'no', 'yes' ))%>%
+  count(Site, P_summary)%>%
+  spread(P_summary, n)%>%
+  mutate(Total = no + yes,
+         FracPara = yes/Total,
+         Elevation = parse_number(Site),
+         Transect = str_sub(Site, 1, 1))%>%
+  filter(!is.na(Site)) -> AllParasitismData
+
+AllParasitismData %>%
+    rename(Parasitised = yes, `Not-Parasitised` = no, `Fraction Parasitised` = FracPara)%>%
+  kable(caption= 'Table S3.1. Raw counts of detailing parasitism frequency across all 14 sites.', digits = 3)
+```
+
+
+## Statistical models - effect of transect and elevation
+
+### Model Selection
+```{r, echo = FALSE}
+QBinomModel_int<- glm(  cbind(AllParasitismData$yes, AllParasitismData$no)  ~Transect*Elevation,
+                        AllParasitismData,
+                        family = 'quasibinomial') 
+
+drop1(QBinomModel_int, test= 'F')
+```
+
+Interaction term between transect and elevation non-significant and dropped from final model, but single terms retained.
+
+
+```{r, echo = FALSE}
+QBinomModel_simp<- glm(  cbind(AllParasitismData$yes, AllParasitismData$no)  ~Transect+Elevation,
+                         AllParasitismData,
+                         family = 'quasibinomial') 
+
+drop1(QBinomModel_simp, test= 'F')
+```
+
+### Final Model
+
+```{r echo = FALSE}
+kable(tidy(QBinomModel_simp)[,1:3], digits = 4,  col.names = c('Model Term', 'Estimate', 'Std. Error'))
+
+AllParasitismData$ModelPredictions <- predict(QBinomModel_simp, type = 'response')
+
+Figure2_a<- AllParasitismData%>%
+  ggplot(aes(x = Elevation, y=FracPara,
+             col = Transect ))+
+  geom_point()+
+  geom_line(aes(y = ModelPredictions))+
+  ylim(0,0.5)+
+  theme_pubr()+
+  guides(col = FALSE)+
+  ylab('Fraction Parasitised')+
+  xlab('Elevation (m a.s.l.)')+
+  scale_colour_manual(values = c('black', 'red'),
+                      name= 'Transect:')
+
+
+Figure2_a+
+  labs(caption = 'Figure S3.1. Main text figure 2a for reference with statistical results.')
+```
+
+
+## Incorporating host species ID
+
+### Data selection
+
+For the within-species parasitism rare analysis we only include relatively common hosts: *D. pseudoananassae*, *D. rubida* and *D. pallidifrons*. Table S3.2 shows why these these species were selected - they were considerably more abundant and were the only three species found at all six sites in our survey. 
+
+```{r, echo = FALSE}
+FullData%>%
+  filter(!is.na(extracted), 
+         !is.na(Host))%>%
+  mutate(P_summary = ifelse(is.na(P_summary),'no', 'yes' ))%>%
+  group_by(Host)%>%
+  summarise(`Number of Sites Present`= n_distinct(Site), 
+            Total = n())%>%
+  arrange(`Number of Sites Present`) %>%
+  kable(caption = 'Table S3.2. Abundance of fly species and presence across sites. Only three species are very widely distributed and are used in the species-specific parasitism rate analysis.')
+```
+
+
+```{r, echo = FALSE}
+
+FullData%>%
+  filter(Host %in%  c("pseudoananassae", "rubida","pallidifrons" ) )%>%
+  count(Site, Host, P_summary )%>%
+  spread( P_summary ,     n, fill = 0)%>%
+  rename(yes= y,  no= `<NA>`) %>%
+  mutate(Total =  yes+no,
+         FracPara = yes/Total,
+         Elevation = parse_number(Site),
+         Transect = str_sub(Site,1,1 )) -> CommonHostData
+
+CommonHostData%>%
+  arrange(Host)%>%
+  rename(Parasitised = yes, `Not-Parasitised` = no, `Fraction Parasitised` = FracPara)%>%
+  kable(caption = 'Table S3.3. Site-specific parasitism data for three most abundant host species.', digits = 3)
+```
+
+### Model Selection
+
+Maximal model, with all two-way interactions between Host species, Elevation and Transect ID. 
+
+```{r, echo = FALSE}
+FocalSpOnly1   <-glm(FracPara~ Host+Transect+Elevation + Transect:Elevation + Host:Elevation + Host:Transect ,
+                     CommonHostData,weights = Total,family= 'quasibinomial')
+drop1(FocalSpOnly1, test = 'F')
+```
+
+Sequentially dropping non-significant terms:
+
+```{r, echo = FALSE}
+FocalSpOnly2   <-glm(FracPara~ Host+Transect+Elevation + Transect:Elevation + Host:Elevation  ,
+                     CommonHostData,weights = Total,family= 'quasibinomial')
+drop1(FocalSpOnly2, test = 'F')
+
+FocalSpOnly3   <-glm(FracPara~ Host+Transect+Elevation + Transect:Elevation,
+                     CommonHostData,weights = Total,family= 'quasibinomial')
+drop1(FocalSpOnly3, test = 'F')
+```
+
+Transect:Elevation interaction term retained in minimal model:
+```{r echo=FALSE, fig.height=4, fig.width=8}
+FocalSpOnly3$call
+
+kable(tidy(FocalSpOnly3)[,1:3], 
+           digits = 4,
+           col.names = c('Model Term', 'Estimate', 'Std. Error'))
+      
+PredictionData = expand.grid(Transect = c('K','P'),
+                             Host =c("pseudoananassae", "rubida","pallidifrons" ) ,
+                             Elevation = 75: 900)
+
+PredictionData$ModelPredictions <- predict(FocalSpOnly3, type = 'response', newdata =PredictionData )
+
+PredictionData%>%
+  mutate(Host_Nice = recode(Host,
+                            'pallidifrons' = 'D. pallidifrons' , 
+                            'pseudoananassae' =    'D. pseudoananassae' ,
+                            'rubida'       =      'D. rubida'),
+  Transect = recode(Transect, 'K' = 'Kirrama', 'P' = 'Paluma') ) ->  PredictionData_Neat
+
+
+CommonHostData%>%
+  mutate(Host_Nice = recode(Host,
+                            'pallidifrons' = 'D. pallidifrons' , 
+                            'pseudoananassae' =    'D. pseudoananassae' ,
+                            'rubida'       =      'D. rubida'),
+  Transect = recode(Transect, 'K' = 'Kirrama', 'P' = 'Paluma') )%>%
+  ggplot(aes(x = Elevation, y = FracPara, col = Transect))+
+  geom_point()+
+  geom_line(aes(y = ModelPredictions), data = PredictionData_Neat)+
+  facet_wrap(~Host_Nice)+
+  theme_pubr(legend = 'right')+
+  ylab('Fraction Parasitised')+
+  xlab('Elevation (m a.s.l.)')+
+  scale_colour_manual(values = c('black', 'red'),
+                      name= 'Transect:')-> Figure2_b
+Figure2_b+
+  labs(caption = 'Figure S3.2. Main text figure 2b for reference with statistical results.')
+
+```
+
+```{r echo=FALSE, include=FALSE}
+
+plot_grid(Figure2_a, Figure2_b, labels = 'auto', rel_widths = c(1,3))
+ggsave('../Figures/Figure2_ab.png',height = 4, width = 12 )
+ggsave('../Figures/Figure2_ab.pdf',height = 4, width = 12 )
+
+```
+
+# Sampling completeness
+
+Site-specific species accumulaiton curves show saturation of host species, but not for parasitoid wasps. 
+
+```{r echo=FALSE, fig.width=8}
+
+par(mfrow = c(1,2))
+
+FullData %>%
+  mutate(Unusable = Parasitoid %in% Iffy |Host =='sulfurigaster complex')%>%
+  filter(!Unusable,
+         !is.na(Host))%>%
+  group_by(Site)%>%
+  count(Host)%>%
+  spread(Host, n, fill = 0)%>%
+  ungroup()%>%
+  column_to_rownames('Site')%>%
+  as.matrix() %>%
+  rarecurve(main = 'a) Hosts')
+
+title(sub= 'Figure S3.3. Site-level species accumulation curves.', xpd=TRUE)
+
+FullData %>%
+  mutate(Unusable = Parasitoid %in% Iffy |Host =='sulfurigaster complex')%>%
+  filter(!Unusable,
+         !is.na(Host))%>%
+  group_by(Site)%>%
+  count(ShortParaName )%>%
+  spread(ShortParaName , n, fill = 0)%>%
+  select(-Unparasitised)%>%
+  ungroup()%>%
+  column_to_rownames('Site')%>%
+  as.matrix() %>%
+  rarecurve(main = 'b) Parasitoids')
+
+
+
+```
+
+# Network metrics
+
+
+## Basic Specificity Statistics
+
+### Hosts
+
+```{r, echo = FALSE}
+FullData %>%
+  filter(!is.na(Host),
+         !is.na(Parasitoid),
+         LongName !='Unparasitised' ,
+         LongName !='Unidentified')%>%
+  count(Host, LongName) %>%
+  count(Host) %>% 
+  kable(caption = 'Table S3.4. Diversity of parasitoids that attack each host')
+```
+
+### Parasitoids
+
+```{r, echo = FALSE}
+FullData %>%
+  filter(!is.na(Host),
+         !is.na(Parasitoid),
+         LongName !='Unparasitised' ,
+         LongName !='Unidentified')%>%
+  count(LongName, Host) %>%
+  count(LongName) %>% 
+  kable(caption = 'Table S3.5. Diversity of hosts that each parasitoid attacks')
+
+
+# Kirruna has a subset of the hosts observed in Paluma
+
+K_hosts<- unique(c(rownames(empty(QualWebs$K070)),
+                   rownames(empty(QualWebs$K390)),
+                   rownames(empty(QualWebs$K730)) )) 
+P_hosts<- unique(c(rownames(empty(QualWebs$P070)),
+                   rownames(empty(QualWebs$P350)),
+                   rownames(empty(QualWebs$P880)) ))
+
+# K_hosts
+# P_hosts
+
+# Bunnanda, immigrans, Sp1 , sulfurigaster, only found interacting in P
+
+# unique(c(colnames(empty(QualWebs$K070)),
+#          colnames(empty(QualWebs$K390)),
+#          colnames(empty(QualWebs$K730)) )) 
+# unique(c(colnames(empty(QualWebs$P070)),
+#          colnames(empty(QualWebs$P350)),
+#          colnames(empty(QualWebs$P880)) ))
+
+```
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+#### Calculating Network Metrics
+
+MetricsNames<-names(networklevel(EnrichedNetworks[[1]]))
+
+## Apply calculate network level metrics to enriched networks
+EnrichedNetworks%>%
+  map_df(networklevel, H2_integer=FALSE)%>%
+  t%>%
+  as.data.frame()%>%
+  rownames_to_column() %>%
+  magrittr::set_colnames( c('Site', MetricsNames)) -> MostMetrics
+
+## Calculate Modularity 
+MostMetrics$Modularity<- map_dbl(EnrichedNetworks,
+                                 function(x){metaComputeModules(x)@likelihood})
+
+## Make long form
+MostMetrics%>%
+  mutate(Elevation = str_sub(Site, 2, 4),
+         Transect = str_sub(Site, 1,1))%>%
+  gather(Metric, Value, connectance :Modularity)-> Metrics
+
+## Qualitative Network metrics
+#  Use all observations for this part.
+
+BinaryNames <-names(grouplevel(QualWebs[[1]]))
+
+QualWebs%>%
+  map_df(grouplevel,weighted = FALSE)%>%
+  t %>%
+  as.data.frame()%>%
+  rownames_to_column() %>%
+  magrittr::set_colnames( c('Site', BinaryNames))%>%
+  mutate(Elevation = str_sub(Site, 2, 4),
+         Transect = str_sub(Site, 1,1))%>%
+  gather(Metric, Value,
+         number.of.species.HL :vulnerability.LL)-> QualitativeMetrics
+
+## Combine the datasets:
+
+AdjLinks<- Metrics %>% filter(Metric%in%   c('generality.HL',
+                                             'vulnerability.LL'))
+AdjLinks$QualValue <-(QualitativeMetrics %>%
+                        filter(Metric%in%   c('generality.HL',
+                                              'vulnerability.LL')))$Value
+```
+
+```{r message=FALSE, echo = FALSE}
+## Bootstrapping values
+### Quantitative Metrics
+
+load('../GeneratedData/Quant_MeasuresOverBootstraps') # Use resampled networks made in Pre-Analysis Data Cleaning document
+
+map_df(SitesOrder,
+       function(SiteSelect,Quant_MeasuresOverBootstraps){
+         Quant_MeasuresOverBootstraps%>%
+           filter(SiteSelect == Site)%>%
+           filter(!is.na(Modularity))%>%
+           mutate(SampleSize = 1000)%>%
+           as.data.frame()%>%
+           select(-Site)%>%
+           ComputeCI()%>%
+           mutate(Site = SiteSelect)%>%
+           return()
+       }, 
+       Quant_MeasuresOverBootstraps
+) -> Quant_ConfInts
+
+
+### Qualitative 
+# Simpler - just resampling using functions in cassandRa package
+
+
+Qual_Confint<-map_df(QualWebs,RarefyNetwork,frac_sample_levels = 1,
+                     metrics =c('generality','vulnerability') , output = 'CI' )
+
+Qual_Confint$Site <- rep(names(QualWebs), each = 2)
+```
+
+## Plots
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+## Join qualitative and quantitative metric data for the focal metrics
+
+Metrics %>%
+  filter(Metric%in%   c('H2', "weighted NODF",'Modularity' ))%>%
+  bind_rows(rename(AdjLinks, Value = QualValue))%>%
+  left_join(bind_rows(Qual_Confint,     ### Adding int he confidence interval calculations
+                      Quant_ConfInts), 
+            by = c("Site", "Metric"))%>%
+  mutate(Elevation = as.numeric(Elevation))-> FiveMetricData
+
+FiveMetricData %>%   
+  mutate(Elevation = ifelse(Elevation != 70,
+                            Elevation,
+                            ifelse(Transect =='K', 65, 75)), ## Nudge tge two 70's away from each other a little
+         Metric = factor(Metric,levels =  c("H2",'weighted NODF','Modularity',
+                                    'vulnerability.LL','generality.HL') , ordered = TRUE),
+         Metric_Nice = recode(Metric,
+                              "H2" = 'Specialisation (H2\u2032)' , 
+                              'weighted NODF' =    'Nestedness (Weighted NODF)' ,
+                              'Modularity'       =      'Modularity',
+                              'vulnerability.LL' = 'Host Vulnerability', 
+                              'generality.HL' = 'Parasitoid Generality'),
+         Transect = recode(Transect, 'K' = 'Kirrama', 'P' = 'Paluma') )%>%
+  ggplot(aes(y=Value, x=Elevation, col = Transect))+
+  geom_point()+
+  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), width =20, alpha = 0.2)+
+  facet_wrap(~Metric_Nice, scales = 'free_y')+
+  theme_pubr()+
+  ylab('Metric Value')+
+  xlab('Elevation (m a.s.l.)')+
+  scale_colour_manual(values = c('black', 'red'),
+                      name= 'Transect:')-> Figure4
+
+
+Figure4+
+  labs(caption= 'Figure S3.4. Main text figure 4, reproduced here for comparison with statistics.')
+
+ggsave('../Figures/Figure4.png',Figure4, width = 8, height = 4)
+ggsave('../Figures/Figure4.pdf',Figure4, width = 8, height = 4)
+
+```
+
+## Statistical tests examining effect of elevation on network metrics
+
+First testing with `Transect` (Kirrama or Paluma) as a co-predictor. Note the p-values reported here are unadjusted for multiple testing, so should be interpreted with due caution. 
+
+### H2`
+```{r, echo = FALSE}
+
+TidyOutput<- function(Model){   
+  print(Model$call)
+ # cat('\n')
+  return(kable(tidy(Model), digits = 4,
+        col.names = c('Model Term', 'Estimate', 'Std. Error', 't-value', 'p-value' )))
+  }
+
+lm( Value~Elevation+ Transect,
+    data =filter(FiveMetricData, Metric == 'H2') ) %>% TidyOutput
+
+
+mean(filter(FiveMetricData, Metric == 'H2')$Value)
+```
+
+### Nestedness
+
+```{r, echo = FALSE}
+
+lm( Value~Elevation+ Transect,
+    data =filter(FiveMetricData, Metric == 'weighted NODF') ) %>% TidyOutput()
+
+```
+
+### Modularity
+
+```{r, echo = FALSE}
+
+lm( Value~Elevation+ Transect,
+    data =filter(FiveMetricData, Metric == 'Modularity') ) %>% TidyOutput()
+
+```
+
+### Vulnerability
+
+```{r, echo = FALSE}
+lm( Value~Elevation+ Transect,
+    data =filter(FiveMetricData, Metric == 'vulnerability.LL') )%>% TidyOutput()
+```
+
+### Generality
+
+```{r, echo = FALSE}
+lm( Value~Elevation+ Transect,
+    data =filter(FiveMetricData, Metric == 'generality.HL') )%>% TidyOutput()
+```
+
+Repeating without transect co-predictor. 
+
+
+### H2`
+
+```{r, ech0 = FALSE}
+lm( Value~Elevation,
+    data = filter(FiveMetricData, Metric == 'H2') )%>% TidyOutput()
+```
+
+### Nestedness
+
+```{r, echo = FALSE}
+lm( Value~Elevation,
+    data = filter(FiveMetricData, Metric == 'weighted NODF') ) %>% TidyOutput()
+
+```
+
+### Modularity
+
+```{r, echo = FALSE}
+
+lm( Value~Elevation,
+    data = filter(FiveMetricData, Metric == 'Modularity') )%>% TidyOutput()
+```
+
+### Vulnerability
+
+```{r, echo = FALSE}
+lm( Value~Elevation,
+    data = filter(FiveMetricData, Metric == 'vulnerability.LL') )%>% TidyOutput()
+```
+
+### Generality
+
+```{r, echo = FALSE}
+lm( Value~Elevation,
+    data = filter(FiveMetricData, Metric == 'generality.HL') ) %>% TidyOutput()
+```
+
+Finally, testing again, this time including `MatrixSize` as a copredictor. This follows the method of Morris *et al.* (2004) cited in the main text, and is measured as the dimensions of the interaction matrix. 
+
+Note that the size of network was highly confounded by the transect:
+
+```{r echo = FALSE}
+MostMetrics %>% 
+  select(Site, 
+         number.of.species.LL,
+         number.of.species.HL)%>%
+  mutate(Matrix_size= number.of.species.LL*number.of.species.HL)-> MatrixSize
+
+kable(MatrixSize[,c(1,4)])
+
+MetricData_MatrixSize<-right_join(MatrixSize, FiveMetricData, by = "Site")
+```
+
+### H2`
+
+```{r, echo = FALSE}
+lm( Value~Elevation+ Matrix_size,
+    filter(MetricData_MatrixSize, Metric == 'H2') )%>% TidyOutput()
+```
+
+### Nestedness
+
+```{r, echo = FALSE}
+lm( Value~Elevation+ Matrix_size,
+    filter(MetricData_MatrixSize, Metric == 'weighted NODF') )%>% TidyOutput()
+```
+
+### Modularity
+
+```{r, echo = FALSE}
+lm( Value~Elevation+ Matrix_size,
+    filter(MetricData_MatrixSize, Metric == 'Modularity') )%>% TidyOutput()
+```
+
+### Vulnerability
+
+```{r, echo = FALSE}
+lm( Value~Elevation+ Matrix_size,
+      filter(MetricData_MatrixSize, Metric == 'vulnerability.LL') )%>% TidyOutput()
+```
+
+### Generality
+
+```{r, echo = FALSE}
+lm( Value~Elevation+ Matrix_size,
+    filter(MetricData_MatrixSize, Metric == 'generality.HL') ) %>% TidyOutput()
+```
+
+# $\beta$ - diversity 
+
+For the analysis of beta-diversity we used binary networks and Jaccard dissimilarity. Labeling of components of dissimilarity are described in the main text. To make use of additional information about host composition, separate from the interaction list, we use a customised version of `bipartite::betalinkr()`. This is detailed in `ExtHostData_betalinkr.R`, made available with all other code. 
+
+```{R echo = FALSE}
+source('ExtHostData_betalinkr.R')
+
+FullData %>%
+  count(Site, Host)%>%
+  filter(!is.na(Host))%>%
+  select(-n)%>%
+  mutate(TRUE)-> AllHostRecords
+
+webs2array(QualWebs)[,,]%>%
+  betalinkr_multi_Exthostinfo(AllHostRecords )-> WideDissimData
+
+gather(WideDissimData, Beta, Value,  S:S_host)-> DissimData
+
+## Some of the networks are really very different
+# DissimData%>%
+#   filter(i == 'K390', j == 'P880')
+```
+
+```{r echo=FALSE,  fig.height=6, fig.width=10}
+DissimData$Beta <- factor(DissimData$Beta,
+                          levels= c('S',
+                                    'WN',
+                                    'OS',
+                                    'ST', 
+                                    'S_host'),
+                          labels = c('S',
+                                     expression("i.~beta[WN]"),
+                                     expression("ii.~beta[OS]"),
+                                     expression("iii.~beta[ST]"),
+                                     expression("iv.~beta[Host]")))
+
+```
+
+```{r message=FALSE, warning=FALSE, echo = FALSE}
+## Creating distance matrices:
+
+WideDissimData%>%
+  select(i,j,S)%>%
+  bind_rows(data.frame(i='K070', j= 'K070', S='0'))%>%
+  bind_rows(data.frame(i='P880', j= 'P880', S='0'))%>%
+  arrange(j)%>%
+  spread(j,S, fill=0)%>%
+  column_to_rownames('i')%>%
+  t%>%
+  as.dist()-> S_Dist_Mat
+
+WideDissimData%>%
+  select(i,j,OS)%>%
+  bind_rows(data.frame(i='K070', j= 'K070', OS='0'))%>%
+  bind_rows(data.frame(i='P880', j= 'P880', OS='0'))%>%
+  spread(j,OS, fill=0)%>%
+  column_to_rownames('i')%>%
+  t%>%
+  as.dist()-> OS_Dist_Mat
+
+WideDissimData%>%
+  select(i,j,WN)%>%
+  bind_rows(data.frame(i='K070', j= 'K070', WN='0'))%>%
+  bind_rows(data.frame(i='P880', j= 'P880', WN='0'))%>%
+  spread(j,WN, fill=0)%>%
+  column_to_rownames('i')%>%
+  t%>%
+  as.dist()-> WN_Dist_Mat
+
+WideDissimData%>%
+  select(i,j,ST)%>%
+  bind_rows(data.frame(i='K070', j= 'K070', ST='0'))%>%
+  bind_rows(data.frame(i='P880', j= 'P880', ST='0'))%>%
+  spread(j,ST, fill=0)%>%
+  column_to_rownames('i')%>%
+  t%>%
+  as.dist()-> ST_Dist_Mat
+
+WideDissimData%>%
+  select(i,j, S_host)%>%
+  bind_rows(data.frame(i='K070', j= 'K070', S_host='0'))%>%
+  bind_rows(data.frame(i='P880', j= 'P880', S_host='0'))%>%
+  spread(j,S_host, fill=0)%>%
+  column_to_rownames('i')%>%
+  t%>%
+  as.dist()-> SHost_Dist_Mat
+
+
+Elevation_Dist <- dist(c(70, 390, 730, 70, 350, 880 ))
+Mountain_Dff <- dist(c(1,1,1,0,0,0))
+```
+
+
+## Multiple Regression on Distance Matrices
+
+Communities do not differ more on different mountains or with greater elevational difference.
+
+```{r}
+
+
+MRM(OS_Dist_Mat~Elevation_Dist+Mountain_Dff, nperm = 50000)$coef 
+MRM(WN_Dist_Mat~Elevation_Dist+Mountain_Dff, nperm = 50000)$coef 
+MRM(ST_Dist_Mat~Elevation_Dist+Mountain_Dff, nperm = 50000)$coef 
+MRM(SHost_Dist_Mat~Elevation_Dist+Mountain_Dff, nperm = 50000)$coef 
+```
+
+### Repeating without transect difference as a check:
+
+```{r}
+MRM(OS_Dist_Mat~Elevation_Dist, nperm = 50000)$coef 
+MRM(WN_Dist_Mat~Elevation_Dist, nperm = 50000)$coef 
+MRM(ST_Dist_Mat~Elevation_Dist, nperm = 50000)$coef 
+MRM(SHost_Dist_Mat~Elevation_Dist, nperm = 50000)$coef 
+```
+
+
+```{r fig.height=8, fig.width=8, echo =FALSE}
+
+data.frame(OS = as.vector(OS_Dist_Mat),
+           WN = as.vector(WN_Dist_Mat),
+           ST = as.vector(ST_Dist_Mat),
+           SHost = as.vector(SHost_Dist_Mat),
+           Elevational_Difference = as.vector(Elevation_Dist),
+           DifferentTransect = as.vector(Mountain_Dff))%>%
+  gather(Metric, Dissimilarity , 1:4, factor_key = TRUE)%>%
+  ggplot(aes(x = Elevational_Difference, y = Dissimilarity, col = Metric))+
+  geom_point( aes(shape = as.factor(DifferentTransect )))+
+  geom_smooth(method = 'lm', se = FALSE)+
+  scale_color_manual(values = c('#66CCEE', '#228833', '#CCBB44', '#AA3377') ,
+                     limits = c('WN', 'OS', 'ST', 'SHost'),
+                     labels = c('Whole Network',
+                                'Changing Interactions',
+                                'Species Turnover',
+                                'Host Species'),
+                     name  = 'Dissimilarity of:')+
+  scale_shape(name = 'Transect:', limits = c(0,1),
+              labels = c('Same transect',
+                         'Different transect'))+
+  guides(col=guide_legend(nrow=2,byrow=TRUE, title.position = 'top'),
+         shape=guide_legend(nrow=2,byrow=TRUE, title.position = 'top'))+
+  scale_y_continuous(limits = c(0,1))+
+  theme(legend.position = 'bottom')+
+  ylab('Jaccard Dissimilarity')+
+  xlab('Elevational Difference Between Sites (m a.s.l.)')-> Figure5a
+
+
+ggsave('../Figures/Figure5a.png',Figure5a, width = 5, height = 5)
+ggsave('../Figures/Figure5a.pdf',Figure5a, width = 5, height = 5)
+
+```
+
+### Dissimilarity matrices plots
+
+```{r echo=FALSE, fig.height=8, fig.width=8}
+
+DissimData %>%
+  filter(Beta !='S')%>%
+  mutate(Value = as.numeric(Value))%>%
+  ggplot(aes(i, j, fill=Value))+
+  geom_tile()+
+  scale_fill_viridis_c(name= 'Dissimilarity:   ',
+                       limit = c(0,1))+
+  scale_x_discrete(limits= SitesOrder)+
+  scale_y_discrete(limits= SitesOrder)+
+  coord_fixed()+
+  facet_wrap(~Beta, labeller = label_parsed)+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        plot.background = element_rect(fill='white' ),
+        panel.background = element_rect(fill='white' ),
+        strip.background = element_rect(fill='white' ),
+        strip.text = element_text(size =16, hjust = 0))+
+  xlab('')+
+  ylab('')+
+  theme(legend.position = "bottom")+
+  guides(fill = guide_colourbar(barwidth = 10, barheight = 0.5))-> Figure5a_MatrixPlot
+
+Figure5a_MatrixPlot+
+  labs(caption = 'Figure S3.5. Alternative visualisation of main text Figure 5a as dissimiliarity matrix plots.')
+
+```
+
+
+
+```{r, echo = FALSE}
+
+# Host distribution plot
+
+RelHostData %>%
+  count(Site, Host)%>%
+  group_by(Site) %>%
+  mutate(freq = 100* n/sum(n))%>%
+  ungroup()%>% 
+  mutate(Elevation = as.numeric(str_sub(Site,2,4)),
+         Transect = str_sub(Site,1, 1)) -> SpeciesElevations
+
+MeanElevations <- SpeciesElevations%>%
+  group_by(Host) %>%
+  summarise(MeanElevation = weighted.mean(Elevation, freq))%>%
+  arrange(MeanElevation)
+
+SpeciesElevations %>%
+  full_join(AllHostRecords, by = c("Site", "Host"))%>%
+  filter(Host != 'sulfurigaster complex')%>%
+  rename(ObservedAllData = `TRUE`)%>%
+  mutate(Elevation = as.numeric(str_sub(Site,2,4)),
+         Transect = ifelse(str_sub(Site,1, 1) == 'K', 'i) Kirrama', 'ii) Paluma')) %>%
+  ggplot(aes(x = Site, y=Host, fill = freq))+
+  geom_tile(aes(col = ObservedAllData), linejoin = 'round')+
+  facet_wrap(~Transect, scales = 'free_x')+
+  scale_y_discrete(limits = MeanElevations$Host)+
+  theme(axis.text.y = element_text(face = 'italic'),
+        legend.title = element_text(size = 10),
+        legend.text =  element_text(size = 10),
+        panel.background = element_rect(fill = 'grey90'),
+        strip.background = element_rect(fill = 'white'),
+        strip.text = element_text(hjust=0, size = 14),
+        legend.position = 'bottom')+
+  guides(fill = guide_colourbar(barwidth = 15, ))+
+  scale_fill_distiller(na.value = 'grey',type = 'seq',
+                       direction = 1 , palette = 2 ,
+                       limits = c(0,100), 
+                       name = 'Relative\nFrequency\nat Site (%)')+
+  ylab('Host Drosophila')+
+  scale_color_manual(values = 'black', guide = FALSE )-> fig5b
+
+ggsave('../Figures/Figure5b.png',fig5b, width = 5, height = 5)
+ggsave('../Figures/Figure5b.pdf',fig5b, width = 5, height = 5)
+```
+
+
+```{r fig.height=8, fig.width=10, echo = FALSE}
+
+FIG5<-plot_grid(Figure5a, fig5b,labels = c('a)', 'b)'), label_size = 17, rel_widths = c(3,4))
+ggsave('../Figures/Figure5.png',FIG5, width = 12, height = 6)
+ggsave('../Figures/Figure5.pdf',FIG5, width = 12, height = 6)
+
+```
+
+# Session Information
+
+```{r echo = FALSE}
+sessionInfo()
+
+```
+
+

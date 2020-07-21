@@ -1,0 +1,22 @@
+Parasitoid,n,ParaName,LongName,ShortParaName,Diagram ShortCode
+Asobara PV20,75,Asobara_1,Asobara sp. 1,Aso_1,A1
+Asobara sp2,21,Asobara_2,Asobara sp. 2,Aso_2,A2
+Asobara sp3,1,Asobara_3,Asobara sp. 3,Aso_3,A3
+"HYM_our123,Braconidae,,,,,109A",8,Braconidae_123,Braconidae sp. 1,Bra_124,B1
+"HYM_our065,Braconidae,,,P250",1,Braconidae_65,Braconidae sp. 2,Bra_66,B2
+Chalcidoidea sp. 1,3,Chalcidoidea_1,Chalcidoidea sp. 1,Cha_2,C1
+"HYM_our069,Diapriid,,,L800",46,Diapriid_69,Diapriidae sp. 1,Dia_69,D1
+"HYM_our070,Diapriid,,,P880",5,Diapriid_70,Diapriidae sp. 2,Dia_70,D2
+"HYM_our126,Diapriid,,,,,70AD",5,Diapriid_126,Diapriidae sp. 3,Dia_127,D3
+Ganaspis cutiepie,11,Ganaspis_,Ganaspis sp. 1,Gan_1,G1
+"HYM_our064,Figitidae,Leptolamina,(lamina),L160",83,Figitidae_64,Leptolamina sp. 1,Fig_64,LM1
+"HYM_our059,Figitidae,Leptopilina,(asiansp),L90",146,Figitidae_59,Leptopilina sp. 1,Fig_59,LP1
+"HYM_our124,Figitidae,Leptopilina,Leptopilina",10,Figitidae_124,Leptopilina sp. 2,Fig_124,LP2
+"HYM_our058,Figitidae,Leptopilina,(tensecond),P070",5,Figitidae_58,Leptopilina sp. 3,Fig_58,LP3
+"HYM_our068,Pteromalidae,,,K730",16,Pteromalidae_68,Pteromalidae sp. 1,Pte_69,P1
+unidentified,7,Unidentified,Unidentified,Unidentified,U
+NA,566,Unparasitised,Unparasitised,Unparasitised,
+not blasted,15,Unparasitised,Unparasitised,Unparasitised,
+not blasted (beetle),1,Unparasitised,Unparasitised,Unparasitised,
+tissue contamination,9,Unparasitised,Unparasitised,Unparasitised,
+tissue contamination (beetle),11,Unparasitised,Unparasitised,Unparasitised,

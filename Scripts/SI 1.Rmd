@@ -1,0 +1,252 @@
+---
+title: "Supplementary Information 1 - Site Information"
+date: "08/06/2020"
+output:
+  word_document:
+    reference_docx: WordMarkdownStyleSheet.docx
+  html_document:
+    df_print: paged
+---
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(bipartite)
+library(readxl)
+library(knitr)
+library(magrittr)
+library(bipartite)
+library(ggpubr)
+library(cowplot)
+library(ggmap)
+library(ggrepel)
+
+load('../GeneratedData/FullData')
+
+
+read_csv('../Data/LocationData.csv')%>% 
+  mutate( Site = paste0(transect, str_pad(elevation, width = 3,
+                                         side = 'left', pad = 0)))%>%
+  filter(Site %in% unique(FullData$Site))%>% 
+  arrange(transect, elevation)-> SiteLocation
+
+
+TempData<-read_csv('../Data/TidyDataLoggerData.csv')
+
+TempData %>% count(Site, Trap)
+
+
+```
+
+# Trap Design
+
+At each site Drosophila-parasitoid communities were sampled using bottle traps baited with fermented banana. Bottle traps consisted of 1.5 L plastic water bottles with two 8cm x 10cm windows cut in the side to allow flies and wasps to enter. A rain-shield was placed over the lid of the bottle and the line was coated with tanglefoot to prevent ant raids. Bottle traps were hung 1.5 m above the ground and separated by a minimum of 5 m. We set the traps at least 5 m from a roadside edge to minimise effects of direct sun exposure. Traps were baited with 50 g of banana bait (mashed ‘Cavendish’ bananas supplemented with bakers’ yeast), and strips of cardboard were added to facilitate *Drosophila* pupation. 
+
+
+![Figure S1.1. Traps used for pupae collection](../Images/Trap Image.png){height=20%}
+**Figure S1.1.** Traps used for pupae collection
+
+
+The 'medium exposure' sampling period followed directly on from the 'short-exposure' sampling period, at the same locations. The 'long-exposure' sampling spanned the two briefer periods. 
+
+
+# Site Details
+
+Three temperature and relative humidity dataloggers were attached to three randomly selected bait traps per site with a reading taken every hour for the duration of sampling. Data  from dataloggers were used for Paluma between the period midnight 13th March  - 11pm 1st April 2016, and data from Kirrama from between midnight 15th March – 11pm 3rd April 2016, the periods where all sites within each transect possessed full days in the field. Four Kirrama sites (K070, K150, K230, and K310) only had usable data from 18th March for two of the three dataloggers used. Paluma 070m was set up later than all other sites, and thus data presented are from 29th March  - 11th April 2017. Changes in seasonal temperatures are not expected to alter the ranking of sites in relation to abiotic values, making elevation a good surrogate for climate in our analyses (Figures S1.2 and 1.3).
+
+```{r fig.height=3, fig.width=6, echo=FALSE}
+   
+TempData %>%  
+  filter(Site %in% unique(FullData$Site))%>%
+  group_by(Site)%>%
+  summarise(`Mean Temperature` = signif(mean(Temp),3))%>%
+  left_join(SiteLocation, by = "Site")  %>%
+    mutate(transect = recode(transect, 'K' = 'Kirrama', 'P' = 'Paluma') )%>%
+
+     ggplot(aes(elevation, `Mean Temperature`, col= transect  ))+
+     geom_point()+
+  xlab('Elevation (m a.s.l.)')+
+  scale_colour_manual(values = c('black', 'red'),
+                      name= 'Transect:')+
+  labs(caption = 'Figure S1.2. Consistent linear relationship between elevation\nand mean temperature across our sample sites.')
+
+TempData %>%  
+  filter(Site %in% unique(FullData$Site))%>%
+  group_by(Site)%>%
+  summarise(`Mean Temperature` = signif(mean(Temp),3),
+            `Temperature standard deviation` = signif(sd(Temp),3)  )%>%
+  left_join(SiteLocation, by = "Site") %>%
+  select( Site, 
+          `Elevation (m)`= elevation ,`Mean Temperature` ,`Temperature standard deviation`,
+          Latitude=latitude, Longitude=longitude ) %>%
+  kable(digits = 4, 
+        caption = 'Table S1.1. Site location and mean temperature' )
+
+# TempData %>%
+#   filter(Site %in% unique(FullData$Site))%>%
+#   group_by(Site)%>%
+#   summarise( `Temperature standard deviation` = signif(sd(Temp),3))%>%
+#   left_join(SiteLocation, by = "Site")  %>%
+#   ggplot(aes(elevation, `Temperature standard deviation`, col= transect  ))+
+#   geom_point()+
+#   geom_smooth(method = 'lm')+
+#   xlab('Elevation (m a.s.l.)')+
+#   guides(col = FALSE)
+
+```
+
+```{r fig.height=8, fig.width=5, echo=FALSE}
+TempData %>%  
+  filter(Site %in% unique(FullData$Site))%>% 
+  group_by(Trap)%>%
+  ggplot(aes(x = Date, y = Temp))+
+  geom_line()+
+  facet_wrap(~Site, dir = 'v', ncol = 2)+
+  ylab('Hourly Temperature Readings')+
+  labs(caption = 'Figure S1.3. Hourly temperature readings across all\nsites during the sampling period (2016).')
+
+```
+
+```{r fig.height=8, fig.width=10, message=FALSE, warning=FALSE, echo=FALSE, include = FALSE, eval = FALSE}
+TempData%>%
+  group_by(Site)%>%
+  summarise(MeanTemp =mean(Temp))%>%
+  right_join(SiteLocation, by = "Site")->SiteLocation
+
+
+K_loc <- SiteLocation %>% filter(transect == 'K')
+P_loc <- SiteLocation %>% filter(transect == 'P')
+
+
+
+Aus<-get_stamenmap(bbox = c(left = 141,
+                            bottom = -20, 
+                            right =   155,
+                            top = -11), zoom = 6,maptype = 'toner-lite' )
+
+
+K_Bounds <-  c(left = 145.75, 
+               right =   145.9, 
+               top = -18.15,
+               bottom = -18.25)
+
+P_Bounds <-  c(left = 146.1525, 
+               right =   146.325, 
+               top = -18.95,
+               bottom = -19.05)
+
+OutMap<- ggmap(Aus)+
+  annotate(geom = 'path',K_Bounds[c(1,1,2,2,1)],K_Bounds[c(3,4,4,3,3)], col = 'red')+
+  annotate(geom = 'path',P_Bounds[c(1,1,2,2,1)],P_Bounds[c(3,4,4,3,3)], col = 'red')+
+  theme(axis.line = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.margin = unit(c(0, 0, -1, -1), 'lines')) +
+  xlab('') +
+  ylab('')
+
+OutMap
+ggsave('../Figures/Figure1Map_OutMap.pdf', OutMap, height = 20, width = 12)
+ggsave('../Figures/Figure1_OutMap.png', OutMap, height = 10, width = 6, dpi = 600)
+
+
+terrainK<-get_stamenmap(bbox =K_Bounds, zoom = 12)
+terrainP<-get_stamenmap(bbox =P_Bounds, zoom = 12)
+
+
+PMap<- ggmap(terrainP)+
+  geom_point(aes(longitude, latitude, fill = MeanTemp), data = SiteLocation, size = 5, shape = 21)+
+  geom_text_repel(aes(longitude, latitude, label = elevation), data = SiteLocation, size = 6 )+
+  scale_fill_gradient(low = 'blue', high='red3',
+                      name =  'Mean Temperature:',
+                      guide =   guide_colourbar(direction = 'horizontal', 
+                                                barwidth = 20, title.position = 'top' ))+
+  xlab('') +
+  ylab('')
+
+KMap<- ggmap(terrainK)+
+  geom_point(aes(longitude, latitude, fill = MeanTemp), data = SiteLocation, size = 5, shape = 21)+
+  geom_text_repel(aes(longitude, latitude, label = elevation), data = SiteLocation, size = 6 )+
+  scale_fill_gradient(low = 'blue', high='red3')+
+  xlab('') +
+  ylab('')
+
+TempLegend<-get_legend(PMap)
+
+
+##########
+# Scale bar
+scalebar.length <- 2
+# K map
+bb<- attr(terrainK,"bb")
+sbar_k  <- data.frame(lon.start = c(bb$ll.lon + 0.75*(bb$ur.lon - bb$ll.lon)),
+                   lon.end = c(bb$ll.lon + 0.95*(bb$ur.lon - bb$ll.lon)),
+                   lat.start = c(bb$ll.lat + 0.1*(bb$ur.lat - bb$ll.lat)),
+                   lat.end = c(bb$ll.lat + 0.1*(bb$ur.lat - bb$ll.lat)))
+bb_K<- bb
+sbar_k $distance <- geosphere::distVincentyEllipsoid(c(sbar_k $lon.start,sbar_k $lat.start),
+                                                  c(sbar_k $lon.end,sbar_k $lat.end)) # default units of this are m
+
+sbar_k $lon.end <- sbar_k $lon.start +((sbar_k $lon.end-sbar_k $lon.start)/sbar_k $distance)*scalebar.length*1000
+
+# P Map
+bb<- attr(terrainP,"bb")
+sbar_P  <- data.frame(lon.start = c(bb$ll.lon + 0.75*(bb$ur.lon - bb$ll.lon)),
+                   lon.end = c(bb$ll.lon + 0.95*(bb$ur.lon - bb$ll.lon)),
+                   lat.start = c(bb$ll.lat + 0.9*(bb$ur.lat - bb$ll.lat)),
+                   lat.end = c(bb$ll.lat + 0.9*(bb$ur.lat - bb$ll.lat)))
+bb_P<- bb
+
+sbar_P $distance <- geosphere::distVincentyEllipsoid(c(sbar_P $lon.start,sbar_P $lat.start),
+                                                  c(sbar_P $lon.end,sbar_P $lat.end)) # default units of this are m
+
+sbar_P $lon.end <- sbar_P $lon.start +((sbar_P $lon.end-sbar_P $lon.start)/sbar_P $distance)*scalebar.length*1000
+######################
+
+
+KMap<-  KMap +  geom_segment(data= sbar_k, aes(x = lon.start, 
+                   y = lat.start,
+                   xend =lon.end,
+                   yend =lat.end),
+               arrow=arrow(angle = 90,length = unit(0.1, "cm"),
+                           ends = "both", type = "open")) +
+  geom_text(data = sbar_k,
+            aes(x = (lon.start + lon.end)/2,
+                y = lat.start + 0.025*(bb_K$ur.lat - bb_K$ll.lat),
+                label = paste(format(scalebar.length),
+                              'km')),
+            hjust = 0.5,
+            vjust = 0,
+            size = 8/ 2.83464567)  # need this because geom_text uses mm, and themes use pts. )  
+
+
+
+PMap<-  PMap +  geom_segment(data= sbar_P, aes(x = lon.start, 
+                   y = lat.start,
+                   xend =lon.end,
+                   yend =lat.end),
+               arrow=arrow(angle = 90,length = unit(0.1, "cm"),
+                           ends = "both", type = "open")) +
+  geom_text(data = sbar_P,
+            aes(x = (lon.start + lon.end)/2,
+                y = lat.start + 0.025*(bb_P$ur.lat - bb_P$ll.lat),
+                label = paste(format(scalebar.length),
+                              'km')),
+            hjust = 0.5,
+            vjust = 0,
+            size = 8/ 2.83464567)  # need this because geom_text uses mm, and themes use pts. )  
+
+Inlay<- plot_grid(   KMap+ guides(fill = FALSE),
+                     PMap+ guides(fill = FALSE),
+                  TempLegend,
+                  ncol = 1,rel_heights = c(4,4,1),
+                  labels = c('Kirrama Transect','Paluma Transect',  ''), scale = 0.9)
+
+Inlay
+ggsave('../Figures/Figure1Map_inlay.pdf', Inlay, height = 10, width = 6)
+ggsave('../Figures/Figure1_inlay.png', Inlay, height = 10, width = 6)
+
+```
+
+
+

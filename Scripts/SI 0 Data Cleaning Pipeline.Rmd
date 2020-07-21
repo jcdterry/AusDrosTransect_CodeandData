@@ -1,0 +1,386 @@
+---
+title: "Pre-Analysis Data Cleaning"
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(bipartite)
+library(readxl)
+library(knitr)
+library(magrittr)
+
+FullData<- read_csv('../Data/SimplifiedFullData.csv') 
+```
+
+# Introduction
+
+This script converts the raw host and parasitoid data into different types of network. It also carries out bootstrapping of the whole procedure to generate an ensemble of re-drawn quantitative networks.
+
+# Reading in data
+
+```{r message=FALSE, warning=FALSE, echo = FALSE}
+FullData<- read_csv('../Data/SimplifiedFullData.csv') 
+ParaNiceNames <- read_csv('../Data/ParaNames2.csv') # various aliases for each species.
+stopifnot(unique(FullData$Parasitoid) %in% ParaNiceNames$Parasitoid) # Check that all names are included
+
+left_join(FullData, ParaNiceNames, by ='Parasitoid') -> FullData
+
+Iffy <- c('Unparasitised','Unidentified',
+          'not blasted', 'not blasted (beetle)',
+          'tissue contamination',
+          'tissue contamination (beetle)',
+          'unidentified' )
+```
+
+# Relative Host Abundances
+Note that not all the parasitism ID was successful:
+```{r echo = FALSE}
+RelHostData<- filter(FullData,
+                     Core == 'yes',
+                     !is.na(Host) )  # filter out the unidentified ones 
+```
+
+```{r echo = FALSE}
+P_summ_Rel<- RelHostData%>%
+  count(Site, P_summary )%>%
+  spread(P_summary, n)%>%
+  set_colnames(c('Site', 'Parasitised', 'Not-Parasitised'))
+
+Both_av_Rel<- RelHostData%>%
+  count(Site, BothAvailable )%>%
+  spread(BothAvailable, n)%>%
+  set_colnames(c('Site', 'ID Available', 'ID Not Available'))%>%
+  mutate(Total = `ID Available`+`ID Not Available`)
+
+full_join(P_summ_Rel, Both_av_Rel, by = "Site")%>%
+  kable(caption = 'Core Network Counts')
+```
+
+# Enriching interactions
+
+```{r echo = FALSE}
+FullData%>%
+  filter(extracted == 'yes')%>%  # 6780 records
+  filter( Site %in% c('K070','K390','K730' , 
+                      'P070','P350','P880') ) %>%  # 3,740 records
+  filter(is.na(Core))-> EnrichingData # This is  2659 records (as per email)
+```
+
+```{r echo = FALSE}  
+P_sum_enrich<-  EnrichingData  %>%
+  count(Site,  P_summary) %>% 
+  spread(P_summary, n)%>%
+  set_colnames(c('Site', 'Parasitised', 'Not-Parasitised')) # 409 of these were parasitised
+
+Both_av_enrich<- FullData %>%
+  filter(extracted == 'yes',
+         Site %in% c('K070','K390','K730' , 'P070','P350','P880'),
+         is.na(Core))%>%
+  count(Site, BothAvailable )%>%
+  spread(BothAvailable, n)%>%
+  set_colnames(c('Site', 'ID Available', 'ID Not Available'))%>%
+  mutate(Total = `ID Available`+`ID Not Available`)
+
+full_join(P_sum_enrich, Both_av_enrich, by = "Site")%>%
+  kable(caption = 'Enriched Network Counts')
+```
+
+```{r echo = FALSE}
+### Additional host and parasitoid data (the complex, enriched part)
+FullData %>%
+   filter(!is.na(extracted),
+          !is.na(Host))%>% 
+  count(Core,Site)%>%
+  spread(Core, n) %>%
+  rename(Core = yes,
+         Enriching = `<NA>`)%>%
+  kable(caption = 'Variable amount of enriching between sites.')
+```
+
+# Site-level frequency of host
+
+```{r  echo = FALSE}
+RelHostData %>%
+  count(Site, Host) %>%
+  spread(Host, n, fill = 0) -> HostCountTable
+
+HostCountTable%>%
+  column_to_rownames('Site')%>%
+  t()%>%
+  kable(caption = 'Host counts in core networks used to determine relative host frequencies')
+
+HostTotals<- matrix(rowSums(HostCountTable[,-1]),
+                    nrow=6, ncol = ncol(HostCountTable)-1)
+
+HostFreqTable<- HostCountTable[,-1] / HostTotals
+```
+
+# Site and Host Level Parasitism Rate
+
+```{r echo = FALSE}
+RelHostData %>%
+  mutate(P_summary = ifelse(is.na(P_summary),'no', 'yes' )) %>%
+  count(Site, Host, P_summary) %>%
+  spread(P_summary, n, fill = 0) %>%
+  mutate(FracPara = yes/(no+yes)) -> SiteHostRateData
+
+count(SiteHostRateData, yes )%>% # NB 
+  kable(caption = 'Table of frequencies of number of observed interactions per host species, per site. Most counts are pretty small, so there is likely to be a lot of noise and uncertainity')
+
+SiteHostRateData%>%
+  select(-no, -yes)%>%
+  spread(Host, FracPara, fill = 0) -> HostParaRateTable
+
+HostParaRateTable%>%
+  column_to_rownames('Site')%>%
+  t()%>%
+  kable(caption = 'Host:Site Parasitism Rates used to calculate quantitive interaction network.',
+        digits = 3)
+```
+
+# Relative frequency of Host-wasp interactions
+
+```{r echo = FALSE}
+FullData %>%
+  filter(!is.na(extracted),
+         Site %in% c('K070'  ,'K390','K730','P070','P350','P880'),
+         !is.na(Host),
+         !is.na(Parasitoid))%>%
+  mutate(Unusable = Parasitoid %in%  Iffy|Host =='sulfurigaster complex') %>%# Still getting `sulfurigaster complex` showing up. Removed as just one and indeterminate
+  filter(!Unusable) %>%
+  select(Site, Host, ShortParaName)-> RelativeIntsData
+
+RelativeIntsData%>%
+  count(Site,Host, name = 'Total') -> TotalsPerSite
+
+RelativeIntsData %>%
+  count(   Site,Host,ShortParaName  ) %>%
+  left_join(TotalsPerSite, by = c("Site", 'Host')) %>%
+  mutate(RelFreq = n/Total) -> RelIntFreqData
+
+```
+
+# Creating Enriched Network
+
+At each site assume 1000 observed hosts.
+
+```{r echo = FALSE}
+AttackedHosts <- HostFreqTable  * HostParaRateTable[,-1] *1000
+
+AttackedHosts$Site <- c('K070'  ,'K390','K730','P070','P350','P880')
+
+AttackedHosts%>%
+  gather('Host', 'Attacked', bipectinata:sulfurigaster) %>%
+  full_join(RelIntFreqData, by = c('Site', 'Host'))%>%
+  filter(!is.na(n))%>%
+  mutate(est_N_ints_per1000 = Attacked * RelFreq) -> EnrichedInteractionList1000
+
+EnrichedInteractionList1000 %>%
+  filter(Site == 'K070') %>%
+  kable(caption = 'Example quantitative interaction network for K070.',
+        digits = 3)
+```
+
+```{r}
+
+save(RelHostData, file = '../GeneratedData/RelHostData') 
+save(FullData, file = '../GeneratedData/FullData') 
+save(EnrichedInteractionList1000, file = '../GeneratedData/EnrichedInteractionList1000') 
+```
+
+# Bootstrapping enriched networks
+
+
+```{r}
+
+# Relative Host Abundances
+RelHostData<- filter(FullData,
+                     Core == 'yes',
+                     !is.na(Host) )  # filter out the unidentified ones (i.e. the blanks?)
+
+RelHostData %>%
+  count(Site, Host) %>%
+  spread(Host, n, fill = 0) -> HostCountTable
+RelHostData %>%
+  mutate(P_summary = ifelse(is.na(P_summary),'no', 'yes' )) %>%
+  count(Site, Host, P_summary) %>%
+  spread(P_summary, n, fill = 0) -> HostSiteParaObs
+
+
+# Relative frequency of each Host-wasp interaction
+RelativeIntsData<- FullData %>%
+  filter(!is.na(extracted),
+         Site %in% c('K070'  ,'K390','K730','P070','P350','P880'),
+         !is.na(Host),
+         !is.na(Parasitoid))%>%
+  mutate(Unusable = Parasitoid %in%  Iffy|Host =='sulfurigaster complex') %>%# Still getting `sulfurigaster complex` showing up. Removed as just one and indeterminate
+  filter(!Unusable) %>%
+  select(Site, Host, ShortParaName)
+
+RelativeIntsData%>%
+  count(Site,Host, name = 'Total') -> HostTotalsPerSite
+RelativeIntsData %>%
+  count(   Site,Host,ShortParaName  )%>% 
+  spread(ShortParaName , n, fill = 0) -> InteractionTotalsPerSite
+
+```
+
+### Define Bootstrapping function
+
+```{r}
+BootstrapAndEnrich <- function(seed, HostCountTable, HostSiteParaObs, HostTotalsPerSite, InteractionTotalsPerSite){
+  
+  set.seed(seed)
+  
+  #######################
+  ## Resampling counts here
+  
+  ## Host counts
+  NewHostCountTable <- HostCountTable
+  
+  for(i in 1: nrow(HostCountTable)){
+    NewHostCountTable[i,-1]<- rmultinom(1, sum(HostCountTable[i,-1]),   HostCountTable[i,-1])
+  }
+  
+  ## Resampling Host Parasitism observations for parasitism rate 
+  # NB many of these are totally one or the other, so not a great estimation... But not much to build a proper Bayesian model out of either 
+  
+  HostSiteParaObs$RedrawnNo <- NA
+  HostSiteParaObs$RedrawnYes <-NA
+  
+  for(i in 1: nrow(HostSiteParaObs)){
+    
+    Draw_xxx<- rmultinom(1, HostSiteParaObs$no[i] + HostSiteParaObs$yes[i],
+                         c( HostSiteParaObs$no[i] , 
+                            HostSiteParaObs$yes[i]))
+    HostSiteParaObs$RedrawnNo[i]<-  Draw_xxx[1]
+    HostSiteParaObs$RedrawnYes[i]<-  Draw_xxx[2]
+  }
+  
+  ### Redrawning parasitoids that attacked each host at each site. Again, minimal style and no cross-drawing. 
+  NewInteractionTotalsPerSite <- InteractionTotalsPerSite 
+  NP<- ncol(InteractionTotalsPerSite)
+  
+  for(i in 1: nrow(InteractionTotalsPerSite)){
+    NewInteractionTotalsPerSite[i,3:NP ] <- rmultinom(1, sum(InteractionTotalsPerSite[i, 3:NP]),
+                                                      InteractionTotalsPerSite[i, 3:NP])
+  }
+  
+  
+  ##################
+  #### Returning to long format, joining and calculating frequencies:
+  
+  
+  NewInteractionTotalsPerSite %>% 
+    gather('ShortParaName', 'n', -Site, -Host) %>%
+    left_join( HostTotalsPerSite,      # This host totals is just used for calculating paratistism frequency, so it is not redrawn. 
+               by = c("Site", 'Host')) %>%
+    mutate(RelFreq = n/Total) -> RelIntFreqData
+  
+  HostSiteParaObs%>%
+    mutate(FracPara = RedrawnYes/(RedrawnNo+RedrawnYes))%>%
+    select(-no,-RedrawnNo,  -yes, -RedrawnYes)%>%
+    spread(Host, FracPara, fill = 0) -> HostParaRateTable
+  
+  
+  HostTotals<- matrix(rowSums(HostCountTable[,-1]),
+                    nrow=6, ncol = ncol(HostCountTable)-1)
+  HostFreqTable<- NewHostCountTable[,-1] / HostTotals
+
+  
+  # Creating Enriched Network 
+  AttackedHosts <- HostFreqTable  * HostParaRateTable[,-1] *1000
+  AttackedHosts$Site <- c('K070'  ,'K390','K730','P070','P350','P880')
+  AttackedHosts%>%
+    gather('Host', 'Attacked', bipectinata:sulfurigaster) %>%
+    full_join(RelIntFreqData, by = c('Site', 'Host'))%>%
+    filter(!is.na(n))%>%
+    mutate(est_N_ints_per1000 = Attacked * RelFreq)%>%
+    filter(est_N_ints_per1000 >0)-> EnrichedInteractionList
+  
+  
+  return(EnrichedInteractionList)
+}
+```
+
+Take 1000 bootstraps and save:
+
+```{r eval = FALSE}
+ListOfBootstrapDraws<-map(1:1000, BootstrapAndEnrich, HostCountTable, HostSiteParaObs, HostTotalsPerSite, InteractionTotalsPerSite)
+save(ListOfBootstrapDraws, file = '../GeneratedData/ListOfBootstrapDraws')
+
+
+ListOfBootstrapDraws[[1]]%>%
+  filter(Site == 'K070')
+
+EnrichedInteractionList1000%>%
+  filter(Site == 'K070')
+
+```
+
+```{r eval = FALSE}
+load('../GeneratedData/ListOfBootstrapDraws')
+
+
+InteractionList <- ListOfBootstrapDraws[[1]]
+
+
+MeasureBootstrapping<-function(InteractionList){
+  
+  InteractionList%>%
+    frame2webs( c('Host', 'ShortParaName', 'Site', 'est_N_ints_per1000'),
+                emptylist = TRUE)-> Networks
+  
+  Networks %>%
+    map_df(networklevel,
+           H2_integer=FALSE,
+           index =  c('H2', "weighted NODF"))%>%
+    t%>%
+    as.data.frame()%>%
+    rownames_to_column() %>%
+    magrittr::set_colnames( c('Site',"weighted NODF", 'H2' )) -> Metrics
+  
+  Metrics$Modularity<- map(Networks,  safely(function(x){metaComputeModules(x)@likelihood}, otherwise = NA))%>%map_dbl('result')
+  return(Metrics)
+}
+
+
+Quant_MeasuresOverBootstraps<- map_df(ListOfBootstrapDraws, MeasureBootstrapping)
+save(Quant_MeasuresOverBootstraps, file= '../GeneratedData/Quant_MeasuresOverBootstraps')
+
+```
+
+# Tidy Data For Deposition
+
+```{r}
+FullData%>%
+  filter(extracted=='yes')%>%
+  filter(Host != 'sulfurigaster complex' | is.na(Host))%>%
+  mutate(Parasitised = ifelse(!is.na(P_summary), TRUE, FALSE),
+         ExposureLength = recode(ExposureLength,
+                                 `10.1`  = 'short',
+                                 `10.2` = 'medium',
+                                 `20` = 'long'    ),
+         Group = ifelse(!is.na(Core), 'Core', 
+                        ifelse(is.na(Core)& !is.na(BothAvailable),'Enriching',
+                               ifelse(is.na(Host), 'Screen Only', 'Enriching' ))))%>% 
+  select(-extracted, -n, -P_summary, -ReplacemeSequencet, - ParaName, 
+         - BothAvailable, -Parasitoid, - ShortParaName, - Core)%>%
+  rename(Parasitoid = LongName)%>%
+  arrange(SampleID)-> DataForNERC
+
+DataForNERC %>%
+  count(Site, TrapID)
+
+
+kable(head(DataForNERC))
+
+# write_csv(DataForNERC, '../Data/PupaeIdentification.csv')
+```
+
+# Session Info
+
+```{r}
+sessionInfo()
+```
