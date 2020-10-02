@@ -19,10 +19,10 @@ output:
 
 # Introduction
 
-This appendix contains additional data tables and the details of statistical analyses presented in the main text. Results are presented here as raw statistical outputs from `R` for maximum clarity. This is a dynamic document, generated using R Markdown. The source script for this file, as well as all material necessary to replicate the analysis are available at [Redacted]. 
+This appendix contains additional data tables and the details of statistical analyses presented in the main text. Results are presented here as raw statistical outputs from `R` for maximum clarity. This is a dynamic document, generated using R Markdown. The source script for this file, as well as all material necessary to replicate the analysis are available at https://github.com/jcdterry/AusDrosTransect_CodeandData. 
 
 
-Raw identification data is available as `SimplifiedFullData.csv`, however note that due to our hierarchical sampling approach this should not be treated as a simple list of observed interactions. For long term archive and data-reuse purposes, tidied data and full explanatory metadata will also be made available in a standardised format through the Environmental Information Data Centre https://eidc.ac.uk/. 
+Raw identification data is available as `SimplifiedFullData.csv`, however note that due to our hierarchical sampling approach this should not be treated as a simple list of observed interactions. For long term archive and data-reuse purposes, tidied data and full explanatory metadata will also be made available in a standardised format through the Environmental Information Data Centre https://doi.org/10.5285/85657c4c-54c9-4d02-a262-455ea1c38d95. 
 
 
 ```{r message=FALSE, warning=FALSE, echo = FALSE}
@@ -107,11 +107,12 @@ FullData%>%
   mutate(Total = no + yes,
          FracPara = yes/Total,
          Elevation = parse_number(Site),
+         Elevation_km = Elevation/1000,
          Transect = str_sub(Site, 1, 1))%>%
   filter(!is.na(Site)) -> AllParasitismData
 
 AllParasitismData %>%
-    rename(Parasitised = yes, `Not-Parasitised` = no, `Fraction Parasitised` = FracPara)%>%
+  rename(Parasitised = yes, `Not-Parasitised` = no, `Fraction Parasitised` = FracPara)%>%
   kable(caption= 'Table S3.1. Raw counts of detailing parasitism frequency across all 14 sites.', digits = 3)
 ```
 
@@ -120,7 +121,7 @@ AllParasitismData %>%
 
 ### Model Selection
 ```{r, echo = FALSE}
-QBinomModel_int<- glm(  cbind(AllParasitismData$yes, AllParasitismData$no)  ~Transect*Elevation,
+QBinomModel_int<- glm(  cbind(AllParasitismData$yes, AllParasitismData$no)  ~Transect*Elevation_km,
                         AllParasitismData,
                         family = 'quasibinomial') 
 
@@ -131,7 +132,7 @@ Interaction term between transect and elevation non-significant and dropped from
 
 
 ```{r, echo = FALSE}
-QBinomModel_simp<- glm(  cbind(AllParasitismData$yes, AllParasitismData$no)  ~Transect+Elevation,
+QBinomModel_simp<- glm(  cbind(AllParasitismData$yes, AllParasitismData$no)  ~Transect+Elevation_km,
                          AllParasitismData,
                          family = 'quasibinomial') 
 
@@ -193,11 +194,13 @@ FullData%>%
   mutate(Total =  yes+no,
          FracPara = yes/Total,
          Elevation = parse_number(Site),
+         Elevation_km = Elevation/1000,
          Transect = str_sub(Site,1,1 )) -> CommonHostData
 
 CommonHostData%>%
   arrange(Host)%>%
   rename(Parasitised = yes, `Not-Parasitised` = no, `Fraction Parasitised` = FracPara)%>%
+  select(-Elevation_km) %>%
   kable(caption = 'Table S3.3. Site-specific parasitism data for three most abundant host species.', digits = 3)
 ```
 
@@ -206,7 +209,7 @@ CommonHostData%>%
 Maximal model, with all two-way interactions between Host species, Elevation and Transect ID. 
 
 ```{r, echo = FALSE}
-FocalSpOnly1   <-glm(FracPara~ Host+Transect+Elevation + Transect:Elevation + Host:Elevation + Host:Transect ,
+FocalSpOnly1   <-glm(FracPara~ Host+Transect+Elevation_km + Transect:Elevation_km + Host:Elevation_km + Host:Transect ,
                      CommonHostData,weights = Total,family= 'quasibinomial')
 drop1(FocalSpOnly1, test = 'F')
 ```
@@ -214,11 +217,11 @@ drop1(FocalSpOnly1, test = 'F')
 Sequentially dropping non-significant terms:
 
 ```{r, echo = FALSE}
-FocalSpOnly2   <-glm(FracPara~ Host+Transect+Elevation + Transect:Elevation + Host:Elevation  ,
+FocalSpOnly2   <-glm(FracPara~ Host+Transect+Elevation_km + Transect:Elevation_km + Host:Elevation_km  ,
                      CommonHostData,weights = Total,family= 'quasibinomial')
 drop1(FocalSpOnly2, test = 'F')
 
-FocalSpOnly3   <-glm(FracPara~ Host+Transect+Elevation + Transect:Elevation,
+FocalSpOnly3   <-glm(FracPara~ Host+Transect+Elevation_km + Transect:Elevation_km,
                      CommonHostData,weights = Total,family= 'quasibinomial')
 drop1(FocalSpOnly3, test = 'F')
 ```
@@ -228,12 +231,14 @@ Transect:Elevation interaction term retained in minimal model:
 FocalSpOnly3$call
 
 kable(tidy(FocalSpOnly3)[,1:3], 
-           digits = 4,
-           col.names = c('Model Term', 'Estimate', 'Std. Error'))
-      
+      digits = 4,
+      col.names = c('Model Term', 'Estimate', 'Std. Error'))
+
 PredictionData = expand.grid(Transect = c('K','P'),
                              Host =c("pseudoananassae", "rubida","pallidifrons" ) ,
                              Elevation = 75: 900)
+
+PredictionData$Elevation_km <- PredictionData$Elevation/1000
 
 PredictionData$ModelPredictions <- predict(FocalSpOnly3, type = 'response', newdata =PredictionData )
 
@@ -242,7 +247,7 @@ PredictionData%>%
                             'pallidifrons' = 'D. pallidifrons' , 
                             'pseudoananassae' =    'D. pseudoananassae' ,
                             'rubida'       =      'D. rubida'),
-  Transect = recode(Transect, 'K' = 'Kirrama', 'P' = 'Paluma') ) ->  PredictionData_Neat
+         Transect = recode(Transect, 'K' = 'Kirrama', 'P' = 'Paluma') ) ->  PredictionData_Neat
 
 
 CommonHostData%>%
@@ -250,7 +255,7 @@ CommonHostData%>%
                             'pallidifrons' = 'D. pallidifrons' , 
                             'pseudoananassae' =    'D. pseudoananassae' ,
                             'rubida'       =      'D. rubida'),
-  Transect = recode(Transect, 'K' = 'Kirrama', 'P' = 'Paluma') )%>%
+         Transect = recode(Transect, 'K' = 'Kirrama', 'P' = 'Paluma') )%>%
   ggplot(aes(x = Elevation, y = FracPara, col = Transect))+
   geom_point()+
   geom_line(aes(y = ModelPredictions), data = PredictionData_Neat)+
@@ -275,7 +280,7 @@ ggsave('../Figures/Figure2_ab.pdf',height = 4, width = 12 )
 
 # Sampling completeness
 
-Site-specific species accumulaiton curves show saturation of host species, but not for parasitoid wasps. 
+Site-specific species accumulation curves show saturation of host species, but not for parasitoid wasps. 
 
 ```{r echo=FALSE, fig.width=8}
 
@@ -459,14 +464,15 @@ Metrics %>%
   left_join(bind_rows(Qual_Confint,     ### Adding int he confidence interval calculations
                       Quant_ConfInts), 
             by = c("Site", "Metric"))%>%
-  mutate(Elevation = as.numeric(Elevation))-> FiveMetricData
+  mutate(Elevation = as.numeric(Elevation),
+         Elevation_km = Elevation/1000)-> FiveMetricData
 
-FiveMetricData %>%   
+FiveMetricData %>% 
   mutate(Elevation = ifelse(Elevation != 70,
                             Elevation,
-                            ifelse(Transect =='K', 65, 75)), ## Nudge tge two 70's away from each other a little
+                            ifelse(Transect =='K', 65, 75)), ## Nudge the two 70's away from each other a little for the plot
          Metric = factor(Metric,levels =  c("H2",'weighted NODF','Modularity',
-                                    'vulnerability.LL','generality.HL') , ordered = TRUE),
+                                            'vulnerability.LL','generality.HL') , ordered = TRUE),
          Metric_Nice = recode(Metric,
                               "H2" = 'Specialisation (H2\u2032)' , 
                               'weighted NODF' =    'Nestedness (Weighted NODF)' ,
@@ -474,9 +480,9 @@ FiveMetricData %>%
                               'vulnerability.LL' = 'Host Vulnerability', 
                               'generality.HL' = 'Parasitoid Generality'),
          Transect = recode(Transect, 'K' = 'Kirrama', 'P' = 'Paluma') )%>%
-  ggplot(aes(y=Value, x=Elevation, col = Transect))+
-  geom_point()+
-  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), width =20, alpha = 0.2)+
+  ggplot(aes(y=Value, x=Elevation))+
+  geom_point(aes(col = Transect))+
+  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI, col = Transect), width =20, alpha = 0.2)+
   facet_wrap(~Metric_Nice, scales = 'free_y')+
   theme_pubr()+
   ylab('Metric Value')+
@@ -485,10 +491,13 @@ FiveMetricData %>%
                       name= 'Transect:')-> Figure4
 
 
-Figure4+
-  labs(caption= 'Figure S3.4. Main text figure 4, reproduced here for comparison with statistics.')
+Figure4 <- Figure4+ geom_smooth(method = 'lm',linetype=0, level=0.95)
 
-ggsave('../Figures/Figure4.png',Figure4, width = 8, height = 4)
+
+Figure4+
+  labs(caption= 'Figure S3.4. Main text figure 4, reproduced here for comparison with statistics.')+
+  
+  ggsave('../Figures/Figure4.png',Figure4, width = 8, height = 4)
 ggsave('../Figures/Figure4.pdf',Figure4, width = 8, height = 4)
 
 ```
@@ -497,28 +506,46 @@ ggsave('../Figures/Figure4.pdf',Figure4, width = 8, height = 4)
 
 First testing with `Transect` (Kirrama or Paluma) as a co-predictor. Note the p-values reported here are unadjusted for multiple testing, so should be interpreted with due caution. 
 
+### Raw Data
+
+```{r, echo = FALSE}
+
+FiveMetricData %>%
+  select(Site : Value)%>%
+  group_by(Site)%>%
+  spread(Metric, Value )%>%
+  kable(digits = 3)
+
+```
+
+
 ### H2`
 ```{r, echo = FALSE}
 
 TidyOutput<- function(Model){   
   print(Model$call)
- # cat('\n')
+  # cat('\n')
   return(kable(tidy(Model), digits = 4,
-        col.names = c('Model Term', 'Estimate', 'Std. Error', 't-value', 'p-value' )))
-  }
+               col.names = c('Model Term', 'Estimate', 'Std. Error', 't-value', 'p-value' )))
+}
 
-lm( Value~Elevation+ Transect,
+lm( Value~Elevation_km+ Transect,
     data =filter(FiveMetricData, Metric == 'H2') ) %>% TidyOutput
 
 
-mean(filter(FiveMetricData, Metric == 'H2')$Value)
+# mean(filter(FiveMetricData, Metric == 'H2')$Value)
+
+
+
+
+
 ```
 
 ### Nestedness
 
 ```{r, echo = FALSE}
 
-lm( Value~Elevation+ Transect,
+lm( Value~Elevation_km+ Transect,
     data =filter(FiveMetricData, Metric == 'weighted NODF') ) %>% TidyOutput()
 
 ```
@@ -527,7 +554,7 @@ lm( Value~Elevation+ Transect,
 
 ```{r, echo = FALSE}
 
-lm( Value~Elevation+ Transect,
+lm( Value~Elevation_km+ Transect,
     data =filter(FiveMetricData, Metric == 'Modularity') ) %>% TidyOutput()
 
 ```
@@ -535,14 +562,14 @@ lm( Value~Elevation+ Transect,
 ### Vulnerability
 
 ```{r, echo = FALSE}
-lm( Value~Elevation+ Transect,
+lm( Value~Elevation_km+ Transect,
     data =filter(FiveMetricData, Metric == 'vulnerability.LL') )%>% TidyOutput()
 ```
 
 ### Generality
 
 ```{r, echo = FALSE}
-lm( Value~Elevation+ Transect,
+lm( Value~Elevation_km+ Transect,
     data =filter(FiveMetricData, Metric == 'generality.HL') )%>% TidyOutput()
 ```
 
@@ -552,14 +579,14 @@ Repeating without transect co-predictor.
 ### H2`
 
 ```{r, ech0 = FALSE}
-lm( Value~Elevation,
+lm( Value~Elevation_km,
     data = filter(FiveMetricData, Metric == 'H2') )%>% TidyOutput()
 ```
 
 ### Nestedness
 
 ```{r, echo = FALSE}
-lm( Value~Elevation,
+lm( Value~Elevation_km,
     data = filter(FiveMetricData, Metric == 'weighted NODF') ) %>% TidyOutput()
 
 ```
@@ -568,21 +595,21 @@ lm( Value~Elevation,
 
 ```{r, echo = FALSE}
 
-lm( Value~Elevation,
+lm( Value~Elevation_km,
     data = filter(FiveMetricData, Metric == 'Modularity') )%>% TidyOutput()
 ```
 
 ### Vulnerability
 
 ```{r, echo = FALSE}
-lm( Value~Elevation,
+lm( Value~Elevation_km,
     data = filter(FiveMetricData, Metric == 'vulnerability.LL') )%>% TidyOutput()
 ```
 
 ### Generality
 
 ```{r, echo = FALSE}
-lm( Value~Elevation,
+lm( Value~Elevation_km,
     data = filter(FiveMetricData, Metric == 'generality.HL') ) %>% TidyOutput()
 ```
 
@@ -605,35 +632,35 @@ MetricData_MatrixSize<-right_join(MatrixSize, FiveMetricData, by = "Site")
 ### H2`
 
 ```{r, echo = FALSE}
-lm( Value~Elevation+ Matrix_size,
+lm( Value~Elevation_km+ Matrix_size,
     filter(MetricData_MatrixSize, Metric == 'H2') )%>% TidyOutput()
 ```
 
 ### Nestedness
 
 ```{r, echo = FALSE}
-lm( Value~Elevation+ Matrix_size,
+lm( Value~Elevation_km+ Matrix_size,
     filter(MetricData_MatrixSize, Metric == 'weighted NODF') )%>% TidyOutput()
 ```
 
 ### Modularity
 
 ```{r, echo = FALSE}
-lm( Value~Elevation+ Matrix_size,
+lm( Value~Elevation_km+ Matrix_size,
     filter(MetricData_MatrixSize, Metric == 'Modularity') )%>% TidyOutput()
 ```
 
 ### Vulnerability
 
 ```{r, echo = FALSE}
-lm( Value~Elevation+ Matrix_size,
-      filter(MetricData_MatrixSize, Metric == 'vulnerability.LL') )%>% TidyOutput()
+lm( Value~Elevation_km+ Matrix_size,
+    filter(MetricData_MatrixSize, Metric == 'vulnerability.LL') )%>% TidyOutput()
 ```
 
 ### Generality
 
 ```{r, echo = FALSE}
-lm( Value~Elevation+ Matrix_size,
+lm( Value~Elevation_km+ Matrix_size,
     filter(MetricData_MatrixSize, Metric == 'generality.HL') ) %>% TidyOutput()
 ```
 
@@ -870,7 +897,7 @@ ggsave('../Figures/Figure5b.pdf',fig5b, width = 5, height = 5)
 ```{r fig.height=8, fig.width=10, echo = FALSE}
 
 FIG5<-plot_grid(Figure5a, fig5b,labels = c('a)', 'b)'), label_size = 17, rel_widths = c(3,4))
-ggsave('../Figures/Figure5.png',FIG5, width = 12, height = 6)
+ggsave('../Figures/Figure5.png',FIG5, width = 12, height = 6, dpi=600)
 ggsave('../Figures/Figure5.pdf',FIG5, width = 12, height = 6)
 
 ```
