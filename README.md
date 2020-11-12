@@ -18,4 +18,9 @@ Data and Scripts for *Molecular analyses reveal consistent food web structure wi
 ## Authorship and citation.
 
 
+This code written by Chris Terry. 
 
+If you make use of the data, please cite the paper:  Jeffs *et al.* Molecular analyses reveal consistent food web structure with
+elevation in rainforest *Drosophila* – parasitoid communities  *Ecography*  43: 1–11, doi: 10.1111/ecog.05390
+
+The data is also archived at the NERC  Environmental Information Data Centre https://doi.org/10.5285/85657c4c-54c9-4d02-a262-455ea1c38d95
